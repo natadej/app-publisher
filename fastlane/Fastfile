@@ -1,0 +1,38 @@
+require 'json'
+
+default_platform(:ios)
+
+platform :ios do
+  private_lane :publisher_key do
+    app_store_connect_api_key(
+      key_id: ENV.fetch('ASC_KEY_ID'),
+      issuer_id: ENV.fetch('ASC_ISSUER_ID'),
+      key_filepath: ENV.fetch('ASC_KEY_PATH'),
+      duration: 1200,
+      in_house: false
+    )
+  end
+
+  desc 'Register the bundle identifier only; does not create or submit an app'
+  lane :register_bundle_id do
+    publisher_key
+    app = JSON.parse(File.read(File.expand_path('../apps.json', __dir__))).fetch(ENV.fetch('PUBLISHER_APP'))
+    id = app.fetch('appId')
+    unless Spaceship::ConnectAPI::BundleId.all(filter: { identifier: id }).any?
+      Spaceship::ConnectAPI::BundleId.create(identifier: id, name: app.fetch('name'), platform: 'IOS')
+    end
+  end
+
+  desc 'Upload binary to internal TestFlight processing only'
+  lane :beta do
+    key = publisher_key
+    upload_to_testflight(
+      api_key: key,
+      ipa: ENV.fetch('PUBLISHER_IPA'),
+      skip_waiting_for_build_processing: true,
+      skip_submission: true,
+      distribute_external: false,
+      notify_external_testers: false
+    )
+  end
+end

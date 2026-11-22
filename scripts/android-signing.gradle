@@ -1,0 +1,14 @@
+allprojects {
+    afterEvaluate { p ->
+        if (p.plugins.hasPlugin('com.android.application')) {
+            def android = p.extensions.getByName('android')
+            def signing = android.signingConfigs.create('publisherUpload') {
+                storeFile = new File(System.getenv('PUBLISHER_KEYSTORE'))
+                storePassword = System.getenv('ANDROID_KEYSTORE_PASSWORD')
+                keyAlias = System.getenv('ANDROID_KEY_ALIAS')
+                keyPassword = System.getenv('ANDROID_KEY_PASSWORD')
+            }
+            android.buildTypes.getByName('release').signingConfig = signing
+        }
+    }
+}

@@ -1,0 +1,75 @@
+name: Unsigned builds
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      android: ${{ steps.matrix.outputs.android }}
+      ios: ${{ steps.matrix.outputs.ios }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - id: matrix
+        run: |
+          echo "android=$(PLATFORM=android node scripts/matrix.mjs)" >> "$GITHUB_OUTPUT"
+          echo "ios=$(PLATFORM=ios node scripts/matrix.mjs)" >> "$GITHUB_OUTPUT"
+      - run: npm ci
+      - run: npm test
+  android:
+    needs: plan
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJSON(needs.plan.outputs.android) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager 'platforms;android-35' 'platforms;android-36' 'build-tools;35.0.0' 'build-tools;36.0.0'
+      - run: npm ci
+      - run: npm run prepare-app -- "$APP" android
+        env:
+          APP: ${{ matrix.app }}
+      - run: bash scripts/build-android.sh "$APP" debug
+        env:
+          APP: ${{ matrix.app }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: debug-${{ matrix.app }}
+          path: work/${{ matrix.app }}/project/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: warn
+  ios:
+    needs: plan
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJSON(needs.plan.outputs.ios) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run prepare-app -- "$APP" ios
+        env:
+          APP: ${{ matrix.app }}
+      - run: bash scripts/ios.sh "$APP" simulator
+        env:
+          APP: ${{ matrix.app }}

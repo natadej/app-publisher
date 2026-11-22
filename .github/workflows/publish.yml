@@ -1,0 +1,163 @@
+name: Publish internal testing builds
+on:
+  workflow_dispatch:
+    inputs:
+      app:
+        description: App registry id
+        type: choice
+        options: [all, Battleship-by-Luffy, Carnival-Shooter-by-Luffy, Tank-Battle-by-Luffy, Word-drop, mac-storage-doctor]
+        default: all
+      platform:
+        description: Target platform (Storage Doctor is Android only)
+        type: choice
+        options: [android, ios, both]
+        default: both
+      track:
+        description: Only internal draft uploads are supported
+        type: choice
+        options: [internal]
+        default: internal
+      version:
+        description: Optional numeric major.minor.patch (otherwise source package version or 1.0.0)
+        type: string
+        required: false
+permissions:
+  contents: read
+concurrency:
+  group: app-publisher-publish
+  cancel-in-progress: false
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      android: ${{ steps.matrix.outputs.android }}
+      ios: ${{ steps.matrix.outputs.ios }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - id: matrix
+        env:
+          APP: ${{ inputs.app }}
+          PLATFORM: ${{ inputs.platform }}
+          TRACK: ${{ inputs.track }}
+        run: |
+          test "$TRACK" = internal
+          if [ "$PLATFORM" = ios ]; then
+            echo 'android=[]' >> "$GITHUB_OUTPUT"
+          else
+            echo "android=$(PLATFORM=android node scripts/matrix.mjs)" >> "$GITHUB_OUTPUT"
+          fi
+          if [ "$PLATFORM" = android ]; then
+            echo 'ios=[]' >> "$GITHUB_OUTPUT"
+          else
+            echo "ios=$(PLATFORM=ios node scripts/matrix.mjs)" >> "$GITHUB_OUTPUT"
+          fi
+  android:
+    needs: plan
+    if: needs.plan.outputs.android != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJSON(needs.plan.outputs.android) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager 'platforms;android-35' 'platforms;android-36' 'build-tools;35.0.0' 'build-tools;36.0.0'
+      - run: npm ci
+      - run: npm run prepare-app -- "$APP" android
+        env:
+          APP: ${{ matrix.app }}
+          VERSION_NAME: ${{ inputs.version }}
+          BATTLESHIP_VITE_LEADERBOARD_URL: ${{ secrets.BATTLESHIP_VITE_LEADERBOARD_URL }}
+          CARNIVAL_VITE_SUPABASE_URL: ${{ secrets.CARNIVAL_VITE_SUPABASE_URL }}
+          CARNIVAL_VITE_SUPABASE_ANON_KEY: ${{ secrets.CARNIVAL_VITE_SUPABASE_ANON_KEY }}
+      - id: signing
+        run: |
+          node -e 'const fs=require("fs");const ready=["ANDROID_KEYSTORE_BASE64","ANDROID_KEYSTORE_PASSWORD","ANDROID_KEY_ALIAS","ANDROID_KEY_PASSWORD"].every(k=>!!process.env[k]);fs.appendFileSync(process.env.GITHUB_OUTPUT,`ready=${ready}\n`)'
+          bash scripts/build-android.sh "$APP" release
+        env:
+          APP: ${{ matrix.app }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      - name: Always retain the AAB (first Play upload is manual)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aab-${{ matrix.app }}-${{ github.run_number }}-${{ github.run_attempt }}
+          path: work/${{ matrix.app }}/project/android/app/build/outputs/bundle/release/*.aab
+          if-no-files-found: warn
+      - id: play
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          APP: ${{ matrix.app }}
+        run: |
+          node -e 'const fs=require("fs");const a=JSON.parse(fs.readFileSync("apps.json"))[process.env.APP];fs.appendFileSync(process.env.GITHUB_OUTPUT,`appId=${a.appId}\nready=${!!process.env.PLAY_SERVICE_ACCOUNT_JSON}\n`)'
+      - name: Upload only an internal draft (never send for review)
+        if: steps.signing.outputs.ready == 'true' && steps.play.outputs.ready == 'true'
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: ${{ steps.play.outputs.appId }}
+          releaseFiles: work/${{ matrix.app }}/project/android/app/build/outputs/bundle/release/*.aab
+          track: internal
+          status: draft
+          changesNotSentForReview: true
+      - name: Explain skipped upload
+        if: steps.signing.outputs.ready != 'true' || steps.play.outputs.ready != 'true'
+        run: echo 'Play upload skipped because signing or Play credentials are absent. Download the build artifact.'
+  ios:
+    needs: plan
+    if: needs.plan.outputs.ios != '[]'
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJSON(needs.plan.outputs.ios) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+      - run: npm ci
+      - run: npm run prepare-app -- "$APP" ios
+        env:
+          APP: ${{ matrix.app }}
+          VERSION_NAME: ${{ inputs.version }}
+          BATTLESHIP_VITE_LEADERBOARD_URL: ${{ secrets.BATTLESHIP_VITE_LEADERBOARD_URL }}
+          CARNIVAL_VITE_SUPABASE_URL: ${{ secrets.CARNIVAL_VITE_SUPABASE_URL }}
+          CARNIVAL_VITE_SUPABASE_ANON_KEY: ${{ secrets.CARNIVAL_VITE_SUPABASE_ANON_KEY }}
+      - run: bash scripts/ios.sh "$APP" simulator
+        env:
+          APP: ${{ matrix.app }}
+      - name: Archive, export using automatic signing, and upload to TestFlight only
+        run: bash scripts/ios.sh "$APP" testflight
+        env:
+          APP: ${{ matrix.app }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ipa-${{ matrix.app }}-${{ github.run_number }}-${{ github.run_attempt }}
+          path: work/${{ matrix.app }}/ios-output/export/*.ipa
+          if-no-files-found: warn

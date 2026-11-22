@@ -1,0 +1,27 @@
+{
+  "Battleship-by-Luffy": {
+    "repo": "natadej/Battleship-by-Luffy", "kind": "web", "build": "npm run build", "webDir": "dist",
+    "appId": "com.natadej.battleship", "name": "Battleship by Luffy", "orientation": "landscape", "platforms": ["android", "ios"],
+    "icon": "public/icon-512.png", "buildEnv": {"VITE_LEADERBOARD_URL": "BATTLESHIP_VITE_LEADERBOARD_URL"}
+  },
+  "Carnival-Shooter-by-Luffy": {
+    "repo": "natadej/Carnival-Shooter-by-Luffy", "kind": "web", "build": "npm run build", "webDir": "dist",
+    "appId": "com.natadej.carnival", "name": "Carnival Shooter by Luffy", "orientation": "landscape", "platforms": ["android", "ios"],
+    "icon": "public/favicon.svg", "camera": true, "microphone": true,
+    "buildEnv": {"VITE_SUPABASE_URL": "CARNIVAL_VITE_SUPABASE_URL", "VITE_SUPABASE_ANON_KEY": "CARNIVAL_VITE_SUPABASE_ANON_KEY"}
+  },
+  "Tank-Battle-by-Luffy": {
+    "repo": "natadej/Tank-Battle-by-Luffy", "kind": "web", "build": "npm run build", "webDir": "dist",
+    "appId": "com.natadej.tankbattle", "name": "Tank Battle by Luffy", "orientation": "landscape", "platforms": ["android", "ios"],
+    "icon": "public/favicon.svg", "buildEnv": {}
+  },
+  "Word-drop": {
+    "repo": "natadej/Word-drop", "kind": "web", "build": null, "webDir": ".",
+    "appId": "com.natadej.worddrop", "name": "Word Drop", "orientation": "portrait", "platforms": ["android", "ios"],
+    "camera": true, "microphone": true, "buildEnv": {}
+  },
+  "mac-storage-doctor": {
+    "repo": "natadej/mac-storage-doctor", "kind": "native", "build": "./gradlew assembleDebug", "webDir": null, "nativeDir": "android",
+    "appId": "com.natadej.storagedoctor", "name": "Storage Doctor", "orientation": "unspecified", "platforms": ["android"], "buildEnv": {}
+  }
+}
